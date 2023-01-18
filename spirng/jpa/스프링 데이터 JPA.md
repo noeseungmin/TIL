@@ -171,3 +171,259 @@ JPA값 타입 @Enbedded도 이방식으로 조회 가능
 List<MemberDto> findMemberDto();
 ```
 DTO로 직접 조회 하려면 JPA의 new 명령어를 사용해야 한다. 그리고 생성자가 맞는 DTO가 필요하다. (JPA와 사용방식이 동일)
+
+### 파라미터 바인딩
+```java
+select m from Member m where m.username = ?0 //위치 기반
+select m from Member m where m.username = :name //이름 기반
+```
+가독성과 유지보수를 위해 이름 기반으로 사용하자 위치기반은 순서가 바뀌면 곤란하다.
+
+```java
+@Query("select m from Member m where m.username in :names")
+List<Member> findByNames(@Param("names") List<String> names);
+```
+Collectio 타입으로 in절 지원
+
+### 반환 타입
+```java
+List<Member> findByUsername(String name); //컬렉션
+Member findByUsername(String name); //단건
+Optional<Member> findByUsername(String name); //단건 Optional
+```
+스프링 데이터 JPA는 반환 타입이 유연하다.
+
+조회 결과가 많거나 없으면?
+* 컬렉션 : 결과 X : 빈 컬렉션 반환.
+* 단건 조회 : 결과 X - Null / 결과가 2건 이상 - `NonUniqueResultException`
+
+## 페이징과 정렬
+### 순수 JPA
+나이가 10살, 이름으로 내림차순, 페이지당 보여줄 데이터 3개, 첫 페이지만!
+```java
+public List<Member> findByPage(int age, int offset, int limit) {
+ return em.createQuery("select m from Member m where m.age = :age order by m.username desc")
+ .setParameter("age", age)
+ .setFirstResult(offset) //몇번째?
+ .setMaxResults(limit) // 몇명까지?
+ .getResultList();
+}
+public long totalCount(int age) {
+ return em.createQuery("select count(m) from Member m where m.age = :age", Long.class)
+ .setParameter("age", age)
+ .getSingleResult();
+}
+```
+### 스프링 데이터 JPA
+#### 페이징과 정렬 파리미터
+* `org.springframework.data.domain.Sort` : 정렬 기능
+* `org.springframework.data.domain.Pageable` : 페이징 기능 (내부에 Sort 포함)
+#### 특별한 반환 타입
+* `org.springframework.data.domain.Page` : 추가 count 쿼리 결과를 포함하는 페이징
+* `org.springframework.data.domain.Slice` : 추가 count 쿼리 없이 다음 페이지만 확인 가능 (내부적으로 limit + 1조회)
+* `List` (자바 컬렉션): 추가 count 쿼리 없이 결과만 반환
+
+```java
+Page<Member> findByUsername(String name, Pageable pageable); //count 쿼리 사용
+Slice<Member> findByUsername(String name, Pageable pageable); //count 쿼리 사용 안함
+List<Member> findByUsername(String name, Pageable pageable); //count 쿼리 사용 안함
+List<Member> findByUsername(String name, Sort sort);
+```
+예제 실행 코드
+```java
+PageRequest pageRequest = PageRequest.of(0, 3, Sort.by(Sort.Direction.DESC,
+"username"));
+ Page<Member> page = memberRepository.findByAge(10, pageRequest);
+ //then
+ List<Member> content = page.getContent(); //조회된 데이터
+ assertThat(content.size()).isEqualTo(3); //조회된 데이터 수
+ assertThat(page.getTotalElements()).isEqualTo(5); //전체 데이터 수
+ ```
+* 두 번째 파라미터로 받은 Pageable 은 인터페이스다. 따라서 실제 사용할 때는 해당 인터페이스를 구현한 org.springframework.data.domain.PageRequest 객체를 사용한다. 
+* PageRequest(현재 페이지, 조회할 데이터 수, 정렬 정보), 페이지는 0부터 시작한다.
+
+#### count 쿼리를 다음과 같이 분리할 수 있음
+```java
+@Query(value = “select m from Member m”,
+ countQuery = “select count(m.username) from Member m”)
+Page<Member> findMemberAllCountBy(Pageable pageable);
+```  
+#### 페이지를 유지하면서 엔티티를 DTO로 변환하기
+```java
+Page<Member> page = memberRepository.findByAge(10, pageRequest);
+Page<MemberDto> dtoPage = page.map(m -> new MemberDto());
+```
+
+## 벌크성 수정 쿼리
+#### JPA 사용
+```java
+public int bulkAgePlus(int age) {
+ int resultCount = em.createQuery(
+ "update Member m set m.age = m.age + 1" +
+ "where m.age >= :age")
+ .setParameter("age", age)
+ .executeUpdate(); //업데이트 쿼리 나감
+ return resultCount;
+}
+```
+#### 스프링 데이터 JPA 사용
+```java
+@Modifying(clearAutomatically=true) //벌크성 수정, 삭제 쿼리 어노테이션
+@Query("update Member m set m.age = m.age + 1 where m.age >= :age")
+int bulkAgePlus(@Param("age") int age);
+```
+
+* 벌크 연산은 영속성 컨텍스트를 무시하고 실행하기 때문에 엔티티의 상태와 DB에 엔티티 상태가 달라질 수 있다.
+* 벌크성 쿼리를 실행하고 나서 영속성 컨텍스트 초기화 : `clearAutomatically=true`를 넣어 줘서 정리해줘야함.
+  * 이 옵션 없이 회원을 findById 로 다시 조회하면 영속성 컨텍스트에 과거 값이 남아서 문제가 될 수 있다. 만약 다시 조회해야 하면 꼭 영속성 컨텍스트를 초기화 하자. 
+
+## @EntityGraph
+연관된 엔티티들을 SQL 한번에 조회하는 방법
+```java
+List<Member> members = memberRepository.findAll();
+ for (Member member : members) {
+ member.getTeam().getName();
+ }
+```
+* 멤버를 찾기 위해 쿼리가 한번 나감 (findAll) (1)
+* 루프를 돌면서 각각의 멤버의 팀 프록시를 찾기 위한 쿼리가 한번씩 더 나감 (N)
+=> N+1의 문제. 
+
+#### JPQL 패치 조인
+```java
+@Query("select m from Member m left join fetch m.team")
+List<Member> findMemberFetchJoin();
+```
+연관된 엔티티를 한번에 조회하려면 페치 조인이 필요하다.
+
+#### EntityGraph
+스프링 데이터 JPA는 `@EntityGraph`를 제공, 편리하게 사용하게 도와준다.
+```java
+//공통 메서드 오버라이드
+@Override
+@EntityGraph(attributePaths = {"team"})
+List<Member> findAll();
+//JPQL + 엔티티 그래프
+@EntityGraph(attributePaths = {"team"})
+@Query("select m from Member m")
+List<Member> findMemberEntityGraph();
+//메서드 이름으로 쿼리에서 특히 편리하다.
+@EntityGraph(attributePaths = {"team"})
+List<Member> findByUsername(String username)
+```
+사실상 페치 조인(FETCH JOIN)의 간편 버전, LEFT OUTER JOIN 사용
+
+## JPA Hint & Lock
+### JPA Hint
+JPA 구현체에게 제공하는 힌트
+```java
+@QueryHints(value = { @QueryHint(name = "org.hibernate.readOnly", value = "true")}, forCounting = true)
+Page<Member> findByUsername(String name, Pageable pageable);
+```
+`org.springframework.data.jpa.repository.QueryHints` 어노테이션을 사용
+`forCounting` : 반환 타입 Page면 count 쿼리도 쿼리 힌트 적용(기본값 true )
+
+### Lock
+```java
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+List<Member> findByUsername(String name);
+```
+`org.springframework.data.jpa.repository.Lock` 어노테이션을 사용
+
+## 확장 기능
+### 사용자 정의 리포지토리 구현
+* 스프링 데이터 JPA 리포지토리는 인터페이스만 정의하고 구현체는 스프링이 자동 생성
+* 스프링 데이터 JPA가 제공하는 인터페이스를 직접 구현하면 구현해야 하는 기능이 너무 많음
+* 다양한 이유로 인터페이스의 메서드를 직접 구현하고 싶다면?
+  * JPA 직접 사용( EntityManager )
+  * 스프링 JDBC Template 사용
+  * MyBatis 사용
+  * 데이터베이스 커넥션 직접 사용 등등...
+  * Querydsl 사용
+  
+#### 사용자 정의 인터페이스
+```java
+public interface MemberRepositoryCustom {
+ List<Member> findMemberCustom();
+}
+```
+
+#### 사용자 정의 인터페이스 구현 클래스
+```java
+@RequiredArgsConstructor
+public class MemberRepositoryImpl implements MemberRepositoryCustom {
+ private final EntityManager em;
+ @Override
+ public List<Member> findMemberCustom() {
+ return em.createQuery("select m from Member m")
+ .getResultList();
+ }
+}
+```
+스프링 부트 2.x 부터는 `MemberRepositoryImpl` 대신에 `MemberRepositoryCustomImpl` 같이 사용자 정의 인터페이스명 + Impl 방식도 지원한다.
+#### 사용자 정의 인터페이스 상속
+```java
+public interface MemberRepository
+ extends JpaRepository<Member, Long>, MemberRepositoryCustom {
+}
+```
+
+스프링 데이터 JPA가 인식해서 스프링 빈으로 등록
+* 규칙: 리포지토리 인터페이스 이름 + Impl
+
+## Auditing
+엔티티 생성, 변경시 등록일 수정일 등록자 수정자를 추적하기
+#### 순수 JPA 사용
+```java
+@MappedSuperclass
+@Getter
+public class JpaBaseEntity {
+ @Column(updatable = false)
+ private LocalDateTime createdDate;
+ private LocalDateTime updatedDate;
+ @PrePersist
+ public void prePersist() {
+ LocalDateTime now = LocalDateTime.now();
+ createdDate = now;
+ updatedDate = now;
+ }
+ @PreUpdate
+ public void preUpdate() {
+ updatedDate = LocalDateTime.now();
+ }
+}
+```
+### 스프링 데이터 JPA
+@EnableJpaAuditing 스프링 부트 설정 클래스에 적용해야함
+@EntityListeners(AuditingEntityListener.class) 엔티티에 적용
+```java
+@EntityListeners(AuditingEntityListener.class)
+@MappedSuperclass
+@Getter
+public class BaseEntity extends BaseTimeEntity{
+ @CreatedBy
+ @Column(updatable = false)
+ private String createdBy;
+ @LastModifiedBy
+ private String lastModifiedBy;
+``` 
+```java 
+public class BaseTimeEntity {
+ @CreatedDate
+ @Column(updatable = false)
+ private LocalDateTime createdDate;
+ @LastModifiedDate
+ private LocalDateTime lastModifiedDate;
+}
+```
+대부분의 엔티티는 등록시간, 수정시간이 필요하지만, 등록자, 수정자는 없을 수도 있다. 다음과 같이 Base 타입을 분리하고, 원하는 타입을 선택해서 상속한다
+
+```java
+@Bean
+public AuditorAware<String> auditorProvider() {
+	return () -> Optional.of(UUID.randomUUID().toString());
+
+}
+//랜덤으로 넣는 코드 실제는 세션 정보나 스프링 시큐리티 로그인 정보에서 아이디를 받음. 
+```
+등록자, 수정자를 처리해주는 AuditorAware를 스프링 빈으로 등록.
