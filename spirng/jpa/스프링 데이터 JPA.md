@@ -427,3 +427,53 @@ public AuditorAware<String> auditorProvider() {
 //랜덤으로 넣는 코드 실제는 세션 정보나 스프링 시큐리티 로그인 정보에서 아이디를 받음. 
 ```
 등록자, 수정자를 처리해주는 AuditorAware를 스프링 빈으로 등록.
+
+## Web 확장
+### 페이징과 정렬
+```java
+@GetMapping("/members")
+public Page<Member> list(Pageable pageable) {
+ Page<Member> page = memberRepository.findAll(pageable);
+ return page;
+```
+* 파라미터로 Pageable 을 받을 수 있다. 
+* Pageable 은 인터페이스, 실제는 `org.springframework.data.domain.PageRequest` 객체 생성
+
+#### 기본값
+* 글로벌 설정: 스프링 부트
+```java
+spring.data.web.pageable.default-page-size=20 /# 기본 페이지 사이즈/
+spring.data.web.pageable.max-page-size=2000 /# 최대 페이지 사이즈/
+```
+* 개별 설정
+```java
+@RequestMapping(value = "/members_page", method = RequestMethod.GET)
+public String list(@PageableDefault(size = 12, sort = “username”,
+ direction = Sort.Direction.DESC) Pageable pageable) {
+ ...
+}
+```
+`@PageableDefault` 어노테이션을 사용
+
+### Page 내용을 DTO로 변환하기
+* 엔티티를 API로 노출하면 다양한 문제가 발생한다. 그래서 엔티티를 꼭 DTO로 변환해서 반환해야 한다.
+* Page는 map() 을 지원해서 내부 데이터를 다른 것으로 변경할 수 있다.
+#### Dto
+```java
+@Data
+public class MemberDto {
+ private Long id;
+ private String username;
+ public MemberDto(Member m) {
+ this.id = m.getId();
+ this.username = m.getUsername();
+```
+#### Controller
+```java
+@GetMapping("/members")
+public Page<MemberDto> list(Pageable pageable) {
+ return memberRepository.findAll(pageable).map(MemberDto::new);
+}
+```
+
+
