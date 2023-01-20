@@ -51,3 +51,55 @@ JDBC가 제공하는 `DriverManager` 는 라이브러리에 등록된 DB 드라�
   * 여기서 각각의 드라이버는 URL 정보를 체크해서 본인이 처리할 수 있는 요청인지 확인한다. URL이 jdbc:h2 로 시작하면 이것은 h2 데이터베이스에 접근하기 위한 규칙이며 H2 드라이버는 본인이 처리할 수 있기 때문에 실제 데이터베이스에 연결해서 커넥션을 획득하고 이 커넥션을 클라이언트에 반환한다. 반면에 URL이 jdbc:h2 로 시작했는데 MySQL 드라이버가 먼저 실행되면 이 경우 본인이 처리할 수 없다는 결과를 반환하게 되고, 다음 드라이버에게 순서가 넘어간다.
 * 이렇게 찾은 커넥션 구현체가 클라이언트에 반환된다.
 * H2 데이터베이스 드라이버만 라이브러리에 등록했기 때문에 H2 드라이버가 제공하는 H2 커넥션을 제공받는다.
+
+### JDBC 개발
+#### save() - 저장
+```java
+private Connection getConnection() {
+ return DBConnectionUtil.getConnection();
+ }
+ ```
+`getConnection()` : 이전에 만들어둔 DBConnectionUtil 를 통해서 데이터베이스 커넥션을 획득한다.
+
+```java
+public Member save(Member member) throws SQLException {
+ String sql = "insert into member(member_id, money) values(?, ?)";
+ Connection con = null;
+ PreparedStatement pstmt = null;
+ try {
+ con = getConnection();
+ pstmt = con.prepareStatement(sql);
+ pstmt.setString(1, member.getMemberId());
+ pstmt.setInt(2, member.getMoney());
+ pstmt.executeUpdate();
+ return member;
+ } catch (SQLException e) {
+ log.error("db error", e);
+ throw e;
+ } finally {
+ close(con, pstmt, null);
+ }
+ }
+ ```
+* `sql` : 데이터베이스에 전달할 SQL을 정의한다. 데이터 등록을 위해 insert sql
+`con.prepareStatement(sql)` : 데이터베이스에 전달할 SQL과 파라미터로 전달할 데이터들을 준비한다.
+  * sql : insert into member(member_id, money) values(?, ?)"
+  * pstmt.setString(1, member.getMemberId()) : SQL의 첫번째 ? 에 값 지정, 문자이므로 `setString`
+  * pstmt.setInt(2, member.getMoney()) : SQL의 두번째 ? 에 값을 지정, Int 형 숫자이므로 `setInt` 
+* pstmt.executeUpdate() : Statement 를 통해 준비된 SQL을 커넥션을 통해 실제 데이터베이스에 전달한다. 참고로 executeUpdate() 은 int 를 반환하는데 영향받은 DB row 수를 반환한다. 여기서는 하나의 row를 등록했기 때문에 1 반환
+
+#### findById() - 조회
+`String sql = "select * from member where member_id = ?";` 
+`rs = pstmt.executeQuery();` : 데이터를 변경할 때는 `executeUpdate()` 를 사용하지만, 데이터를 조회할 때는 `executeQuery()` 를 사용한다. `executeQuery()` 는 결과를 `ResultSet` 에 담아서 반환한다.
+
+#### ResultSet
+ResultSet은 select 쿼리의 결과가 순서대로 들어간다 .
+* `select member_id, money` 라고 지정하면 member_id , money 라는 이름으로 데이터가 저장되며 `select *` 을 사용하면 테이블의 모든 컬럼을 다 지정한다.
+* ResultSet은 내부에 있는 커서( cursor )를 이동해서 다음 데이터를 조회할 수 있다.
+  * `rs.next()` : 이것을 호출하면 커서가 다음으로 이동한다. 최초의 커서는 데이터를 가리키고 있지 않기 때문에 rs.next() 를 최초 한번은 호출해야 데이터를 조회할 수 있다.
+  * rs.next() 의 결과가 true 면 커서의 이동 결과 데이터 존재, rs.next() 의 결과가 false 면 더이상 커서가 가리키는 데이터 미존재.
+* rs.getString("member_id") : 현재 커서가 가리키고 있는 위치의 member_id 데이터를 String타입으로 반환한다.
+* rs.getInt("money") : 현재 커서가 가리키고 있는 위치의 money 데이터를 int 타입으로 반환한다.
+
+#### update(), delete() - 수정, 삭제
+수정과 삭제는 등록과 비슷하다. 등록, 수정, 삭제처럼 데이터를 변경하는 쿼리는 executeUpdate() 를 사용하면 된다
