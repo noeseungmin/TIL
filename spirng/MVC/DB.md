@@ -195,3 +195,26 @@ void dataSourceConnectionPool() throws SQLException, InterruptedException {
 #### MyPool connection adder
 별도의 쓰레드 사용해서 커넥션 풀에 커넥션을 채워준다. 이 쓰레드는 커넥션 풀에 커넥션을 최대 풀 수( 10 )까지 채운다.
 애플리케이션을 실행할 때 커넥션 풀을 채울 때 까지 마냥 대기하고 있다면 애플리케이션 실행 시간이 늦어진다. 따라서 이렇게 별도의 쓰레드를 사용해서 커넥션 풀을 채워야 애플리케이션 실행 시간에 영향을 주지 않는다.
+
+### 데이터 소스 적용
+```java
+private final DataSource dataSource;
+ public MemberRepositoryV1(DataSource dataSource) {
+ this.dataSource = dataSource;
+ }
+//....
+ private void close(Connection con, Statement stmt, ResultSet rs) {
+ JdbcUtils.closeResultSet(rs);
+ JdbcUtils.closeStatement(stmt);
+ JdbcUtils.closeConnection(con);
+ }
+ private Connection getConnection() throws SQLException {
+ Connection con = dataSource.getConnection();
+ log.info("get connection={}, class={}", con, con.getClass());
+ return con;
+ }
+ ```
+* `DataSource` 의존관계 주입
+  * 외부에서 `DataSource` 를 주입 받아서 사용한다. 이제 직접 만든 `DBConnectionUtil` 을 사용하지 않아도 된다.
+  * `DataSource` 는 표준 인터페이스 이기 때문에 `DriverManagerDataSource` 에서 `HikariDataSource` 로 변경되어도 해당 코드를 변경하지 않아도 된다.
+* `JdbcUtils` 편의 메서드 : 스프링은 JDBC를 편리하게 다룰 수 있는 `JdbcUtils` 라는 편의 메서드를 제공한다.
