@@ -103,3 +103,95 @@ ResultSet은 select 쿼리의 결과가 순서대로 들어간다 .
 
 #### update(), delete() - 수정, 삭제
 수정과 삭제는 등록과 비슷하다. 등록, 수정, 삭제처럼 데이터를 변경하는 쿼리는 executeUpdate() 를 사용하면 된다
+
+
+## 커넥션풀과 데이터소스
+### 커넥션 풀의 이해
+JDBC 를 사용한다면 데이터베이스에 접근할 때 마다 매번 커넥션을 획득해야하고 다음과 같은 복잡한 커넥션 과정을 거쳐야한다.
+* 애플리케이션 로직은 DB 드라이버를 통해 커넥션을 조회한다.
+* DB 드라이버는 DB와 TCP/IP 커넥션을 연결한다. 물론 이 과정에서 3 way handshake 같은 TCP/IP 연결을 위한 네트워크 동작이 발생한다.
+* DB 드라이버는 TCP/IP 커넥션이 연결되면 ID, PW와 기타 부가정보를 DB에 전달한다.
+* DB는 ID, PW를 통해 내부 인증을 완료하고, 내부에 DB 세션을 생성한다.
+* DB는 커넥션 생성이 완료되었다는 응답을 보낸다.
+* DB 드라이버는 커넥션 객체를 생성해서 클라이언트에 반환한다.
+#### 문제점
+커넥션을 새로 만드는 것은 복잡한 과정 + 많은 시간 소요되며 DB는 물론이고 애플리케이션 서버에서도 TCP/IP 커넥션을 새로 생성하기 위한 리소스를 매번 사용해야 한다.
+
+#### 해결방안
+이런 문제를 한번에 해결하는 아이디어가 바로 커넥션을 미리 생성해두고 사용하는 커넥션 풀이라는 방법이다.
+커넥션 풀은 이름 그대로 커넥션을 관리하는 풀(수영장 풀을 상상하면 된다.)이다.
+
+* 적절한 커넥션 풀 숫자는 서비스의 특징과 애플리케이션 서버 스펙, DB 서버 스펙에 따라 다르기 때문에 성능 테스트를 통해서 정해야 한다.
+* 커넥션 풀은 서버당 최대 커넥션 수를 제한할 수 있다. 따라서 DB에 무한정 연결이 생성되는 것을 막아주어서 DB를 보호하는 효과도 있다.
+* 대표적인 커넥션 풀 오픈소스는 commons-dbcp2 , tomcat-jdbc pool , HikariCP 등이 있다.
+* 성능과 사용의 편리함 측면에서 최근에는 hikariCP 를 주로 사용한다. 스프링 부트 2.0 부터는 기본 커넥션 풀로 hikariCP 를 제공한다. 성능, 사용의 편리함, 안전성 측면에서 이미 검증이 되었기 때문에 커넥션 풀을 사용할 때는 고민할 것 없이 hikariCP 를 사용하면 된다. 실무에서도 레거시 프로젝트가 아닌 이상 대부분 hikariCP 를 사용한다.
+
+### 데이터소스
+* 대부분의 커넥션 풀은 DataSource 인터페이스가 구현 되어 있다. 따라서 DataSource 인터페이스에만 의존하도록 애플리케이션 로직을 작성하면 된다. 
+커넥션 풀 구현 기술을 변경하고 싶으면 해당 구현체로 갈아끼우기만 하면 된다.
+* `DriverManager`는 `DataSource` 인터페이스를 사용하지 않는다. 따라서 `DriverManager`는 직접 사용해야 합니다.
+* `DataSource` 기반의 커넥션 풀 ↔️ `DriverManager` 로 변경한다면 관련 코드를 수정해야합니다.
+
+이런 문제를 해결하기 위해 스프링은 `DriverManager` 도 `DataSource` 를 통해서 사용할 수 있도록 `DriverManagerDataSource` 라는 `DataSource` 를 구현한 클래스를 제공한다.
+
+### 데이터 소스 예제1 - DriverManager
+#### 드라이버 매니저
+```java
+public class ConnectionTest {
+ @Test
+ void driverManager() throws SQLException {
+ Connection con1 = DriverManager.getConnection(URL, USERNAME, PASSWORD);
+ Connection con2 = DriverManager.getConnection(URL, USERNAME, PASSWORD);
+ log.info("connection={}, class={}", con1, con1.getClass());
+ log.info("connection={}, class={}", con2, con2.getClass());
+ }
+}
+```
+#### 데이터소스 드라이버 매니저
+```java
+@Test
+ void dataSourceDriverManager() throws SQLException {
+ //DriverManagerDataSource - 항상 새로운 커넥션 획득
+ DriverManagerDataSource dataSource = new DriverManagerDataSource(URL,
+USERNAME, PASSWORD);
+ useDataSource(dataSource);
+ }
+ private void useDataSource(DataSource dataSource) throws SQLException {
+ Connection con1 = dataSource.getConnection();
+ Connection con2 = dataSource.getConnection();
+ log.info("connection={}, class={}", con1, con1.getClass());
+ log.info("connection={}, class={}", con2, con2.getClass());
+ }
+}
+```
+`DriverManagerDataSource`는 스프링이 제공하는 코드로 `DataSource`를 통해서 커넥션을 획득할 수있다.
+* 차이점
+`DriverManager` 는 커넥션을 획득할 때 마다 파라미터를 계속 전달해야 한다. 반면에 `DataSource`를 사용하는 방식은 처음 객체를 생성할 때만 필요한 파리미터를 넘겨두고, 커넥션을 획득할 때는 단순히`dataSource.getConnection()` 만 호출하면 된다
+* 설정과 사용의 분리
+ * 설정 : DataSource 를 만들고 필요한 속성들을 사용해서 `URL , USERNAME , PASSWORD` 같은 부분을 입력하는 것을 말한다. 
+ * 사용 : 설정은 신경쓰지 않고, `DataSource` 의 `getConnection()` 만 호출해서 사용하면 된다.
+
+필요 데이터를 `DataSource` 가 만들어지는 시점에 미리 다 넣어두게 되면 속성들에 의존하지 않아도 되서 DataSource만 주입받아 `getConnection()`을 호출하면된다. 리포지토리(Repository)는 DataSource 만 의존하고 덕분에 객체를 설정하는 부분과, 사용하는 부분을 좀 더 명확하게 분리할 수 있다.
+
+### 데이터 소스 예제1 - 커넥션 풀
+```java
+@Test
+void dataSourceConnectionPool() throws SQLException, InterruptedException {
+ //커넥션 풀링: HikariProxyConnection(Proxy) -> JdbcConnection(Target)
+ HikariDataSource dataSource = new HikariDataSource();
+ dataSource.setJdbcUrl(URL);
+ dataSource.setUsername(USERNAME);
+ dataSource.setPassword(PASSWORD);
+ dataSource.setMaximumPoolSize(10);
+ dataSource.setPoolName("MyPool");
+ useDataSource(dataSource);
+ Thread.sleep(1000); //커넥션 풀에서 커넥션 생성 시간 대기
+}
+```
+* `HikariDataSource` 는 `DataSource` 인터페이스를 구현하고 있다.
+* 풀 이름은 Mypool, 사이즈는 최대 10으로 지정 해주었다.
+* 커넥션 풀에서 커넥션을 생성하는 작업은 애플리케이션 실행 속도에 영향을 주지 않기 위해 별도의 쓰레드에서 동작하기 때문에 테스트가 먼저 종료되어 버린다. Thread.sleep 을 통해 대기 시간을 주어야 쓰레드 풀에 커넥션이 생성되는 로그를 확인할 수 있다.
+
+#### MyPool connection adder
+별도의 쓰레드 사용해서 커넥션 풀에 커넥션을 채워준다. 이 쓰레드는 커넥션 풀에 커넥션을 최대 풀 수( 10 )까지 채운다.
+애플리케이션을 실행할 때 커넥션 풀을 채울 때 까지 마냥 대기하고 있다면 애플리케이션 실행 시간이 늦어진다. 따라서 이렇게 별도의 쓰레드를 사용해서 커넥션 풀을 채워야 애플리케이션 실행 시간에 영향을 주지 않는다.
