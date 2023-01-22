@@ -238,3 +238,41 @@ private final DataSource dataSource;
 * READ COMMITTED(커밋된 읽기) 
 * REPEATABLE READ(반복 가능한 읽기) 
 * SERIALIZABLE(직렬화 가능) 
+
+### 트랜잭션 - 개념 이해
+데이터 변경 쿼리를 실행하고 데이터 베이스에 그 결과를 반영하려면 커밋 명령어인 `commit`을 호출하고, 결과를 반영하고 싶지 않으면 롤백 명령어인 `rollback`을 호출하면 된다. 커밋 호출 전까지는 임시로 데이터를 저장하기 때문에 다른 세션 사용자에게는 변경 데이터가 보이지 않는다.
+
+#### 자동커밋 
+```
+set autocommit true; //자동 커밋 모드 설정
+insert into member(member_id, money) values ('data1',10000); //자동 커밋
+insert into member(member_id, money) values ('data2',10000); //자동 커밋
+```
+각각의 쿼리 실행 직후 자동으로 커밋을 호출 따라서 커밋, 롤백을 직접 호출하지 않아도 되는 편리함을 가진다. 하지만 트랜잭션 기능을 제대로 사용하기 어렵다.
+#### 수동커밋
+```
+set autocommit false; //수동 커밋 모드 설정
+insert into member(member_id, money) values ('data3',10000);
+insert into member(member_id, money) values ('data4',10000);
+commit; //수동 커밋
+```
+쿼리 실행 후 `commit`이나 `rollback`을 호출해야 된다.
+
+### DB락
+세션 1이 트랜잭션을 시작하고 데이터를 수정 중 커밋을 실행하지 않았는데 세션 2에서 동시에 같은 데이터를 수정 시 트랜잭션의 원자성이 깨지는 문제가 발생한다. 이러한 문제를 방지하기 위해 세션이 트랜잭션을 시작하고 데이터를 수정하는 동안에는 커밋이나 롤백 전까지 다른 세션에서 해당 데이터를 수정 할 수 없게 막기 위해 락이라는 개념을 제공한다.
+#### 개념이해
+세션1은 memberA 의 금액을 500원으로 변경하고 싶고, 세션2는 같은 memberA 의 금액을 1000원으로
+변경하고 싶다.
+* 세션1은 memberA 의 money 를 500으로 변경을 시도한다. 이때 해당 로우의 락을 먼저 획득해야 한다. 락이 남아 있으므로 세션1은 락을 획득한다. (세션1이 세션2보다 조금 더 빨리 요청했다.)
+* 세션1은 락을 획득했으므로 해당 로우에 update sql을 수행한다
+* 세션 2도 MemberA의 money데이터를 변경하려 시도하는데 락이 없으므로 락이 돌아올때 까지 대기한다. 세션 2는 무한정 대기하는 것이 아닌 락대기 시간까지 기다리고 넘어가면 락 타임 오류가 발생한다.(락 대기시간 설정 가능) `SET LOCK_TIMEOUT <milliseconds>`
+* 세션 1이 커밋을 수행하면 트랜잭션이 종료 되어 락을 반납한다. -> 대기하던 세션 2가 락을 획득
+* update sql 수행, 커밋 후 트랜잭션이 종료되어 락을 반납한다.
+
+#### 조회
+일반적으로 조회할때는 락을 사용하지 않는다. 애플리케이션 로직에서 금액을 조회한다음 금액 정보로 어떤 계산을 수행할때 중요한 계산이라 계산이 완료 될때까지 금액이 변경되면 안될 경우 사용된다.
+```
+set autocommit false;
+select * from member where member_id='memberA' for update;
+```
+`select for update` 구문을 사용하면 조회를 하면서 동시에 선택한 로우의 락도 획득한다.
