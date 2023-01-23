@@ -276,3 +276,49 @@ set autocommit false;
 select * from member where member_id='memberA' for update;
 ```
 `select for update` 구문을 사용하면 조회를 하면서 동시에 선택한 로우의 락도 획득한다.
+
+## 자바 예외
+* Exception : 체크 예외
+  * 애플리케이션 로직에서 사용할 수 있는 실질적인 최상위 예외이다.
+  * Exception 과 그 하위 예외는 모두 컴파일러가 체크하는 체크 예외이다. 단 RuntimeException 은 예외로 한다.
+* RuntimeException : 언체크 예외, 런타임 예외
+  * 컴파일러가 체크 하지 않는 언체크 예외이다.
+  * RuntimeException 과 그 자식 예외는 모두 언체크 예외이다.
+  * RuntimeException 의 이름을 따라서 RuntimeException 과 그 하위 언체크 예외를 런타임 예외라고 많이 부른다. 여기서도 앞으로는 런타임 예외로 종종 부르겠다.
+ 
+ ### 예외 기본 규칙
+* 예외에 대해서는 2가지 기본 규칙을 기억하자.
+1. 예외는 잡아서 처리하거나 던져야 한다.
+2. 예외를 잡거나 던질 때 지정한 예외뿐만 아니라 그 예외의 자식들도 함께 처리된다.
+  * 예를 들어서 Exception 을 catch 로 잡으면 그 하위 예외들도 모두 잡을 수 있다.
+  * 예를 들어서 Exception 을 throws 로 던지면 그 하위 예외들도 모두 던질 수 있다.
+```java
+static class MyCheckedException extends Exception {
+ public MyCheckedException(String message) {
+ super(message);
+ }
+}
+```
+`MyCheckedException` 는 `Exception` 을 상속받아 체크 예외가 된다. RuntimeException 을 상속받으면 언체크 예외가 된다.
+```java
+@Test
+void checked_catch() {
+ Service service = new Service();
+ service.callCatch();
+}
+```
+```java
+public void callCatch() {
+ try {
+ repository.call();
+ } catch (MyCheckedException e) {
+ //예외 처리 로직
+ log.info("예외 처리, message={}", e.getMessage(), e);
+ }
+ }
+ ```
+ 실행 순서
+ * test -> service.callCatch() -> repository.ccall() (예외발생, 던짐)
+ * test <- service.callCatch() (예외 처리) <- repository.call()
+ * test (정상 흐름) <- service.callCatch() <- repository.call()
+ `Repository.call()` 에서 `MyUncheckedException` 예외가 발생하고, 그 예외 `Service.callCatch()` 에서 잡는 것을 확인할 수 있다.
