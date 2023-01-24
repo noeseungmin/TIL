@@ -322,3 +322,18 @@ public void callCatch() {
  * test <- service.callCatch() (예외 처리) <- repository.call()
  * test (정상 흐름) <- service.callCatch() <- repository.call()
  `Repository.call()` 에서 `MyUncheckedException` 예외가 발생하고, 그 예외 `Service.callCatch()` 에서 잡는 것을 확인할 수 있다.
+ 
+catch에 MyCheckedException의 상위 타입인 Exception을 적어면 해당 예외와 그 하위 타입인 MyCheckedException을 잡을 수 있다. 정확하게 MyCheckedException만 잡고 싶다면 catch에 MyCheckedException만 적어줘야한다.
+
+#### 체크예외 밖으로 던지기
+```java
+public void callThrow() throws MyCheckedException {
+ repository.call();
+ }
+ ```
+체크예외를 처리할 수 없을때 `method() throws`를 사용해서 밖으로 던질 예외를 필수로 지정해주어야 한다. MyCheckedException을 밖으로 던진다.
+* throws에 MyCheckedException의 상위 타입인 Exception을 적어주어도 throws에 지정한 타입과 그하위 타입인 MyCheckedException을 던질 수 있다. 정확하게 MyCheckedException만 던지고 싶다면 throws에 MyCheckedException을 적어주어야 한다.
+
+체크예외는 예외를 잡아서 처리 할 수 없을때, 예외를 밖으로 던지는 throws를 필수로 선언해야한다. 그렇지 않을 경우 컴파일 오류가 발생한다.
+* 장점 : 개발자가 실수로 예외를 누락하지 않도록 컴파일러를 통해 문제를 잡아주는 훌륭한 안전장치이다.
+* 단점 : 개발자가 모든 체크 예외를 반드시 잡거나 던져야 하기 때문에 너무 번거롭다. 크게 신경쓰고 싶지 않은 예외까지 모두 챙겨야한다.
