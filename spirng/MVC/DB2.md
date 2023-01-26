@@ -78,3 +78,25 @@ jdbcTemplate.update(
  
 JdbcTemplate는 가장 간단하고 실용적인 방법으로 SQL을 사용한다. 하지만 동적쿼리 해결에 제한사항이 있고 SQL을 자바로 작성하기 때문에 SQL 라인이 코드를 넘어갈 때마다 문자를 더하기 해주어야한다.
 
+
+## MyBatis
+MyBatis는 JdbcTemplate보다 많은 기능을 제공하는 SQL Mapper이다. SQL을 XML에 편리하게 작성할 수 있고 동적 쿼리를 매우 편리하게 작성 할 수 있다.
+
+#### 설정
+`implementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter:2.2.0'` 다음과 같은 라이브러리가 추가된다.
+* mybatis-spring-boot-starter : MyBatis를 스프링 부트에서 편리하게 사용할 수 있게 시작하는 라이브러리
+* mybatis-spring-boot-autoconfigure : MyBatis와 스프링 부트 설정 라이브러리
+* mybatis-spring : MyBatis와 스프링을 연동하는 라이브러리
+* mybatis : MyBatis 라이브러리
+ 
+ ```java
+mybatis.type-aliases-package=hello.itemservice.domain
+mybatis.configuration.map-underscore-to-camel-case=true
+logging.level.hello.itemservice.repository.mybatis=trace
+```
+* `mybatis.type-aliases-package` 마이바티스에서 타입 정보를 사용할 때는 패키지 이름을 적어주어야 하는데, 여기에 명시하면 패키지 이름 생략가능, 지정한 패키지와 그 하위 패키지 자동인식, 여로위치를 지정하려면 ,(콤마), ;(세미콜론)로 구분 하면된다.
+* `mybatis.configuration.map-underscore-to-camel-case` JdbcTemplate의 BeanPropertyRowMapper 에서 처럼 언더바를 카멜로 자동 변경해주는 기능을 활성화 한다.
+* `logging.level.hello.itemservice.repository.mybatis=trace` MyBatis에서 실행되는 쿼리 로그를 확인할 수 있다
+
+#### 관례의 불일치
+자바 객체에는 주로 카멜표기법을 사용(itemName) 중간에 낙타 봉이 올라와 있는 표기법, 반면 관계형 데이터베으슨는 스네이크표기법을 사용(item_name) 중간에 언더스코어를 사용한다. `map-underscore-to-camel-case` 기능을 활성화 하면  select item_name으로 조회해도 객체의 itemName(setItemName()) 속성에 값이 정상 입력된다. 컬럼이름과 객체 이름이 완전히 다른 경우에는 조회 SQL에서 별칭을 사용하도록 하자
