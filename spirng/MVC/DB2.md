@@ -100,3 +100,100 @@ logging.level.hello.itemservice.repository.mybatis=trace
 
 #### 관례의 불일치
 자바 객체에는 주로 카멜표기법을 사용(itemName) 중간에 낙타 봉이 올라와 있는 표기법, 반면 관계형 데이터베으슨는 스네이크표기법을 사용(item_name) 중간에 언더스코어를 사용한다. `map-underscore-to-camel-case` 기능을 활성화 하면  select item_name으로 조회해도 객체의 itemName(setItemName()) 속성에 값이 정상 입력된다. 컬럼이름과 객체 이름이 완전히 다른 경우에는 조회 SQL에서 별칭을 사용하도록 하자
+
+
+### 적용 - 기본1
+```java
+@Mapper
+public interface ItemMapper {
+ void save(Item item);
+ void update(@Param("id") Long id, @Param("updateParam") ItemUpdateDto 
+updateParam);
+ Optional<Item> findById(Long id);
+ List<Item> findAll(ItemSearchCond itemSearch);
+}
+```
+`@Mapper` 애노테이션을 붙여주어야 MyBatis에서 인식할 수 있다. 메서드를 호출하면 같은 위치(같은 패키지)에 실행할 SQL이 있는 xml의 해당 SQL을 실행하고 결과를 돌려준다.
+
+```java
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+ "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="hello.itemservice.repository.mybatis.ItemMapper">
+ <insert id="save" useGeneratedKeys="true" keyProperty="id">
+ //...
+ </insert>
+ <update id="update">
+  //...
+ </update>
+ <select id="findById" resultType="Item">
+ //...
+ </select>
+ <select id="findAll" resultType="Item">
+ //...
+ </select>
+</mapper>
+```
+* XML경로 수정을원하면 application.properties에 `mybatis.mapper-locations=classpath:mapper/**/*.xml` 이렇게 할 경우 resources/mapper를 포함한 그 하위 폴더에 있는 XML을 XML매핑 파일로 인식한다. 
+
+#### insert - save
+```java
+<insert id="save" useGeneratedKeys="true" keyProperty="id">
+ insert into item (item_name, price, quantity)
+ values (#{itemName}, #{price}, #{quantity})
+</insert>
+```
+* id에는 매퍼 인터페이스에 설정한 메서드 이름을 지정한다. 메서드 이름으 save()이기 때문에 save로 지정
+* 파라미터는 `#{}` 문법을 사용하면 PreparedStatement를 사용한다. JDBC의 ? 를 치환해주는 역할, 매퍼에 넘긴 객체의 프로퍼티 이름을 적어준다. 
+* userGeneatedKeys는 데이터베이스가 키를 생성해주는 IDENTITY 전략일 때 사용되며 KeyPropert는 생성되는 키의 속성을 지정한다. Insert가 끝나면 item 객체의 id 속성에 생성된 값이 입력된다.
+
+#### update - update
+```java
+<update id="update">
+ update item
+ set item_name=#{updateParam.itemName},
+ price=#{updateParam.price},
+ quantity=#{updateParam.quantity}
+ where id = #{id}
+</update>
+```
+* 파라미터가 `Long id`, `ItemUpdateDto updateParam`으로 파라미터가 2개이상이면 `@Param`으로 이름을 지정해서 파라미터 구분이 필요하다.
+
+#### select - findById
+```java
+<select id="findById" resultType="Item">
+ select id, item_name, price, quantity
+ from item
+ where id = #{id}
+</select>
+```
+* `resultType`은 반환 타입을 명시해줘야 한다. 여기서는 결과를 Item객체에 매핑한다.
+* `application.properties`에 `mybatis.type-aliases-package=hello.itemservice.domain` 속성을 지정해주게 되면 패키지 명을 다 적지 않아도 된다.
+* `mybatis.configuration.map-underscore-to-camel-case=true` 속성을 미리 지정 해주었기 떄문에 언더스코어를 카멜 표기법으로 자동으로 처리해준다.
+* 자바 코드에서 반환 객체가 하나면 Item, Optional<Item>과 같이 사용하면 되고, 하나 이상일경우 컬렉션을 사용하면 된다.(주로 List사용)
+ 
+ #### select - findAll
+ ```java
+ <select id="findAll" resultType="Item">
+ select id, item_name, price, quantity
+ from item
+ <where>
+ <if test="itemName != null and itemName != ''">
+ and item_name like concat('%',#{itemName},'%')
+ </if>
+ <if test="maxPrice != null">
+ and price &lt;= #{maxPrice}
+ </if>
+ </where>
+</select>
+ ```
+* MyBatis는 `<where>`, `<if>` 같은 동적 쿼리 문법을 통해 편리한 동적 쿼리를 지원한다.
+* `<if>`는 해당 조건이 만족하면 구문을 추가한다.
+* `<where>`은 적절하게 where문장을 만들어준다.
+  * `<if>`가 모두 실패하게 되면 where을 만들지 않는다.
+  * `<if>`가 하나라도 성공하면 처음 나타나는 and를 whree로 변환 해준다.
+ 
+ 
+ 
+ 
+ 
