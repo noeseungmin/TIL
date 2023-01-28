@@ -193,7 +193,74 @@ updateParam);
   * `<if>`가 모두 실패하게 되면 where을 만들지 않는다.
   * `<if>`가 하나라도 성공하면 처음 나타나는 and를 whree로 변환 해준다.
  
+ ## JPA
+ ```java
+ @Data
+@Entity
+public class Item {
+ @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+ private Long id;
+ @Column(name = "item_name", length = 10)
+ private String itemName;
+ private Integer price;
+ private Integer quantity;
+ public Item() {
+ }
+ public Item(String itemName, Integer price, Integer quantity) {
+ this.itemName = itemName;
+ this.price = price;
+ this.quantity = quantity;
+ }
+}
+ ```
+ `public Item() { }` JPA는 public 또는 protected 기본 생성자가 필수다.
+* `@Entity`: JPA가 사용하는 객체라는 뜻 JPA가 인식하기 위해 필수 
+* `@Id`: 테이블의 PK와 해당 필드를 매핑한다.
+* `@GeneratedValue(strategy = GenerationType.IDENTITY)`: PK 생성 값을 데이터베이스에서 생성하는 IDENTITY 방식을 사용
+* `@Coluimn`: 객체의 필드를 테이블의 컬럼과 매핑한다.
+ * `name`: 객체는 itemName이지만 테이블 컬럼은 item_name이므로 이렇게 매핑
+ * `length`: JPA매핑 정보로 DDL도 생성 할 수 있는데, 그때 컬럼의 길이 값으로 활용한다.(varchar 10)
+* `@Column` 을 생략할 경우 필드의 이름을 테이블 컬럼이름으로 사용한다. 객체 필드의 카멜 케이스를 테이블 컬럼의 언더스코어로 자동으로 변환 해준다. `itemName` -> `item_name`
  
+ ```java
+ @Repository
+@Transactional
+public class JpaItemRepositoryV1 implements ItemRepository {
+ private final EntityManager em;
+ public JpaItemRepositoryV1(EntityManager em) {
+ this.em = em;
+ }
+ ```
+JPA의 모든 동작은 엔티티 매니저를 통해 이루어진다. 엔티티 매니저는 내부에 데이터 소스를 가지고 있고 데이터베이스에 접근 할 수 있다.
+`@Transactional`: JPA의 모든 데이터 변경(등록,수정,삭제)은 트랜잭션 안에서 이루어져야 한다. JPA에서는 데이터 변경시 트랜잭션이 필수이다.
  
+#### save() - 저장
+```java
+ public Item save(Item item) {
+ em.persist(item);
+ return item;
+}
+```
+`em.persist(item)`: JPA에서 객체를 테이블에 저장할 때는 엔티티 매니저가 제공하는 persist()메서드를 사용하면 된다.
+
+ #### update() - 수정
+ ```java
+ public void update(Long itemId, ItemUpdateDto updateParam) {
+ Item findItem = em.find(Item.class, itemId);
+ findItem.setItemName(updateParam.getItemName());
+ findItem.setPrice(updateParam.getPrice());
+ findItem.setQuantity(updateParam.getQuantity());
+}
+ ```
+ JPA는 트랜잭션이 커밋되는 시점에 변경된 엔티티 객체가 있는지 확인하고 변경된 경우 UPDATE SQL을 실행 한다.
  
- 
+#### findAll() - 목록 조회
+ ```java
+ public List<Item> findAll(ItemSearchCond cond) {
+ String jpql = "select i from Item i";
+ //...
+ TypedQuery<Item> query = em.createQuery(jpql, Item.class);
+ return query.getResultList();
+}
+ ```
+JPA는 JPQL이라는 객체 지향 쿼리 언어를 제공한다. SQL은 테이블을 대상, JPQL은 엔티티 객체를 대상으로 SQL을 실행
